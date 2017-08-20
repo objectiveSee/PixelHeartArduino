@@ -11,7 +11,8 @@
 //#define DISABLE_INPUT_SWITCHES
 
 
-#define TEST_ENCLOSURE_PIXELS
+//#define USE_DEBUG_ANIMATION
+
 
 /**
  * Pin Declerations
@@ -23,25 +24,36 @@
 
 // input switch is 18 & 20
 // pot in is 17
-const int switchInputPin = 18;
+const int switch0InputPin = 18;
+const int switch1InputPin = 9;
+const int potentiometerPin = 16;
 const int enclosureNeopixelsPin = 15;
 const int ledPin = 13;
-const int potentiometerPin = 16;
 
 /**
  * Misc Variables
  */
  
-static int switch0State;
+static int switch0State, switch1State;
 unsigned long last_light_mode_change = 0;  // initially high to prevent trigger on 1st run
-typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_COUNT} LightMode;
-static int lightMode = LIGHT_MODE_RED;
+unsigned long last_switch_1_change = 0;  // initially high to prevent trigger on 1st run
+
+/** 
+ * Light modes as enum. 
+ * NOTE: LIGHT_MODE_OFF is after the LIGHT_MODE_COUNT so it isn't cycled through.
+ */
+typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
+#define DEFAULT_LIGHT_MODE LIGHT_MODE_ORANGE
+static int lightMode = DEFAULT_LIGHT_MODE;
 
 // Pin 13 blinking properties
 #define BLINK_DURATION 100    // duration of blink when it's on
 #define BLINK_INTERVAL 5000   // interval in ms that blinks happen at
 #define BLINK_DURATION_DURING_SETUP 100    // duration of blink when it's on, during setup
 #define BLINK_INTERVAL_DURING_SETUP 200   // interval in ms that blinks happen at, during setup
+
+#define SENSOR_BUFFER_LENGTH 4
+int sensor_readings[SENSOR_BUFFER_LENGTH];
 
 
 /**
@@ -50,6 +62,9 @@ static int lightMode = LIGHT_MODE_RED;
  
 const int enclosureNeopixelsCount = 1;    // Number of Neopixels built into the Teensy enclosure.
 Adafruit_NeoPixel enclosure_pixels = Adafruit_NeoPixel(enclosureNeopixelsCount, enclosureNeopixelsPin, NEO_RGB + NEO_KHZ800);
+static unsigned long last_enclosure_led_change = 0;
+uint32_t enclosureColor = 0;
+
 
 /**
  * Octo Library Setup
@@ -72,8 +87,9 @@ OctoWS2811 leds(ledsTotal, displayMemory, drawingMemory, config);
  
 void setup() {
 
-  pinMode(switchInputPin, INPUT_PULLUP);
-
+  pinMode(switch0InputPin, INPUT_PULLUP);
+  pinMode(switch1InputPin, INPUT_PULLUP);
+  
   // initialize the digital pin as an output.
   pinMode(ledPin, OUTPUT);
   pinMode(enclosureNeopixelsPin, OUTPUT); // TODO: needed?
@@ -90,13 +106,47 @@ void setup() {
   Serial.println("Starting...");
 
   // Initialize states
-  switch0State = digitalRead(switchInputPin);
-  Serial.print("Initial Switch State: "); Serial.println(switch0State); 
+  switch0State = digitalRead(switch0InputPin);
+  Serial.print("Initial Switch 0 State: "); Serial.println(switch0State); 
+  switch1State = digitalRead(switch1InputPin);
+  Serial.print("Initial Switch 1 State: "); Serial.println(switch1State); 
+
+  // initalize sensor buffer
+  int sensor_initial_value = analogRead(potentiometerPin);
+  for ( int i = 0; i < SENSOR_BUFFER_LENGTH; i++ ) {
+    sensor_readings[i] = sensor_initial_value;
+  }
 
   delay(1000);
   bootUpLEDs();
   Serial.println("Boot-up complete!");
   
+}
+
+static int potentiometer_value; // 0 to 123 inclusive
+
+void updatePotentiometerValue() {
+  
+  int sensorValue = analogRead(potentiometerPin);
+  static int sensor_reading_index = 0;
+
+  sensor_reading_index = (sensor_reading_index+1) % SENSOR_BUFFER_LENGTH;
+
+  sensor_readings[sensor_reading_index] = sensorValue;
+
+  int t = 0;
+  for ( byte i = 0; i < SENSOR_BUFFER_LENGTH; i++ ) {
+    t += sensor_readings[i];
+  }
+  t /= SENSOR_BUFFER_LENGTH;
+
+  t = min(1023, t);   // restrain to 0-1023
+  t = max(0, t);
+  
+  potentiometer_value = t;
+  
+
+//  Serial.print("Sensor value is "); Serial.println(t);  
 }
 
 void loop() 
@@ -108,26 +158,47 @@ void loop()
   // update light mode and check switch inputs for mode changes
   loopLightMode();
 
-  lightAnimationRed();
+  updatePotentiometerValue();
 
-  int sensorValue = analogRead(potentiometerPin);
-  Serial.print("Sensor value is "); Serial.println(sensorValue);
+  static int last_light_mode_log = -1;
+  if ( lightMode != last_light_mode_log ) {
+    logLightMode(lightMode);
+    last_light_mode_log = lightMode;
+  }
 
-//  switch (lightMode) {
-//    
-//    case LIGHT_MODE_RED:
-//      lightAnimationRed();
-//
-//
-//    case LIGHT_MODE_ORANGE:
-//      lightAnimationOrange();
-//      
-//    break;
-//    default:
-//      Serial.print("Unknown light mode "); Serial.print(lightMode);
-//      allColor(0x000000);
-//    break;
-//  }
+  #ifdef USE_DEBUG_ANIMATION
+//  Serial.println("Using debug animation");
+  lightAnimationDebug();
+  delay(10);
+  return;
+#endif
+
+
+  switch (lightMode) {
+    
+    case LIGHT_MODE_RED:
+      lightAnimationRed();
+      break;
+
+
+    case LIGHT_MODE_ORANGE:
+      lightAnimationOrange();
+      break;
+
+    case LIGHT_MODE_GREEN:
+      lightAnimationGreen();
+      break;
+
+    case LIGHT_MODE_OFF:
+      lightAnimationOff();
+      break;
+    
+    break;
+    default:
+      Serial.print("Unknown light mode "); Serial.println(lightMode);
+      allColor(0x000000);
+    break;
+  }
 
   delay(10);
 }
@@ -138,63 +209,162 @@ void loop()
  *
  ***************************************************************************************/
 
+/**
+ * Animation that can be powered by USB from MacBook
+ */
 void lightAnimationDebug() {
 
 
-  leds.setPixel(10, 0x00FF00);
-  leds.setPixel(ledsPerStrip + 10, 0x00FF00);
+  // 1 pixel on at a time
 
-  leds.setPixel(50, 0x00FF00);
-  leds.setPixel(ledsPerStrip + 50, 0x00FF00);
-  
+/**
+  static int j = 0;
+  for ( int i = 0; i < ledsTotal; i++ ) {
+    if ( i == j ) {
+      leds.setPixel(i, color(0x33,0x33,0x33));
+    } else {
+      leds.setPixel(i, color(0,0,0));
+    }
+  }
+  Serial.print("J = "); Serial.println(j);
+  j = (j+1)%ledsTotal;
+  leds.show();
+  */
+
+/**
   static int j = 0;
   for ( int i = 0; i < ledsPerStrip; i++ ) {
     if ( i == j ) {
-      setPixelInStrip(i, 0x003300, 0);
-      setPixelInStrip(ledsPerStrip - i - 1, 0x003300, 1);
+      setPixelInStrip(i, color(0x33,0x33,0x33), 0);
+      setPixelInStrip(i, color(0x33,0x33,0x33), 1);
     } else {
-      setPixelInStrip(i, 0x000000, 0);
-      setPixelInStrip(ledsPerStrip - i - 1, 0x000000, 1);
+      setPixelInStrip(i, color(0,0,0), 0);
+      setPixelInStrip(i, color(0,0,0), 1);
     }
   }
   Serial.print("J = "); Serial.println(j);
   j = (j+1)%ledsPerStrip;
   leds.show();
+  */
+
+/*
+  const int kIntervalDebugShow = 3;
+  static int j = 0;
+  for ( int i = 0; i < ledsPerStrip; i++ ) {
+    if ( i % kIntervalDebugShow == j ) {
+      setPixelInStrip(i, color(0x33,0x33,0x33), 0);
+      setPixelInStrip(i, color(0x33,0x33,0x33), 1);
+    } else {
+      setPixelInStrip(i, color(0,0,0), 0);
+      setPixelInStrip(i, color(0,0,0), 1);
+    }
+  }
+  j = (j+1)%kIntervalDebugShow;
+  Serial.print("J = "); Serial.println(j);
+  leds.show();
+  delay(40);
+  */
+
+//  lightAnimationGreen();
+
 }
 
 void lightAnimationDimTest() {
-  for ( int i = 0; i < ledsTotal; i++ ) {
 
-    if ( i % 2 == 0 ) {
-      leds.setPixel(i, 0xFFFFFF);
-    } else {
-      leds.setPixel(i, 0x000000);
-    }
-    
-  }
-  leds.show();
+//
+//  int target_pixel = 40;
+//
+//  for ( int i = 0; i < ledsPerStrip; i++ ) {
+//    int distance_to_pixel = target_pixel - i;
+//    if ( distance_to_pixel > ledsPerStrip / 2 ) {
+//      distance_to_pixel = ledsPerStrip - distance_to_pixel;
+//    }
+//    if ( i == 20 || i == 120 ) {
+//      Serial.print("LED "); Serial.print(i); Serial.print("= "); Serial.println(distance_to_pixel);
+//    }
+//  }
+ 
   
 }
 
-#define ORANGE_ANIMATION_RATE 500
-#define ORANGE_ANIMATION_SPACING 5
-
 
 void lightAnimationOrange() {
-  for ( int i = 0; i < ledsPerStrip; i+= ORANGE_ANIMATION_SPACING) {
-    uint32_t top = 0;
-    uint32_t bottom = 0;
 
-    byte value = (millis() / ORANGE_ANIMATION_RATE) % 2;
+  float wheel_percent = potentiometer_value / 1023.0f;
+  byte wheel_position  = wheel_percent * 255;
+  uint32_t c = Wheel(wheel_position);
+  
+  for ( int i = 0; i < ledsPerStrip; i++ ) {
 
-    top = (value == 0) ? color(255,180,0) : 0;
-    bottom = (value != 0) ? color(255,180,0) : 0;
+    if ( i % 2 == 0 ) {
+      setPixelInStrip(i, c, 0);
+      setPixelInStrip(i, 0, 1);    
+    } else if ( i % 2 == 1 ) {
+      setPixelInStrip(i, 0, 0);
+      setPixelInStrip(i, c, 1); 
+    } 
+//    else {
+//      setPixelInStrip(i, 0, 0);
+//      setPixelInStrip(i, 0, 1);
+//    }
 
-
-    setPixelInStrip(i, top, 0);
-    setPixelInStrip(i, bottom, 1);
-    
   }
+  leds.show();
+
+}
+
+int distanceCircular(int x, int y, int total) {
+
+  int d= abs(x-y);
+
+  if ( d < total / 2 ) {
+    return d;
+  } else {
+    return total - d;
+  }  
+}
+
+
+/**
+ * Measured current is 0.62 amps (Saturday @ 3:44pm)
+ */
+#define GREEN_WIDTH 10
+void lightAnimationGreen() {
+
+  int target_pixel = (millis() / 40) % ledsPerStrip;
+  uint32_t defaultcolor = color(0,0,10);
+  
+  for ( int i = 0; i < ledsPerStrip; i++ ) {
+    int distance_to_pixel = distanceCircular(i, target_pixel, ledsPerStrip);
+
+    if ( distance_to_pixel < GREEN_WIDTH ) {
+
+      float percentage = (GREEN_WIDTH-distance_to_pixel)/((float) GREEN_WIDTH);
+      percentage = percentage * percentage;
+      
+      byte r = (byte)(255.0f * percentage);
+      byte g = (byte)(255.0f * percentage);
+      uint32_t col1 = color( r, 0, 10);
+      uint32_t col2 = color( 0, g, 10);
+      setPixelInStrip(i, col1, 0);
+      setPixelInStrip(i, col2, 1);
+//      Serial.print(i); Serial.print(" "); Serial.println(r);
+    
+    } else {
+      setPixelInStrip(i, defaultcolor, 0);
+      setPixelInStrip(i, defaultcolor, 1);
+    }
+
+    
+//    if ( i == 30 || i == ledsPerStrip-1 ) {
+//      Serial.print("LED "); Serial.print(i); Serial.print("= "); Serial.println(distance_to_pixel);
+//    }
+  }
+  leds.show();
+}
+
+void lightAnimationOff() {
+  allColor(0x000000);
 }
 
 
@@ -205,7 +375,7 @@ void lightAnimationRed() {
   
   unsigned long pos_int = (millis() / 45) % 255;
   float p = pos_int / 255.0f;
-  byte key_index = ((millis() / RED_ANIMATION_SPEED) % RED_ANIMATION_SPACING);
+  byte key_index = ((millis() / RED_ANIMATION_SPEED ) % RED_ANIMATION_SPACING);
   byte offkey_index = RED_ANIMATION_SPACING - key_index - 1;
 
 //  Serial.print("Key Index: "); Serial.print(key_index); Serial.print(". Offkey Index: "); Serial.println(offkey_index);
@@ -216,7 +386,7 @@ void lightAnimationRed() {
     if ( i % RED_ANIMATION_SPACING == key_index ) {
       setPixelInStrip(i, Wheel((byte)pos_int), 0);
     } else {
-      setPixelInStrip(i, 0x000000, 0);
+      setPixelInStrip(i, color(0,0,0), 0);
     }
   }
 
@@ -226,7 +396,7 @@ void lightAnimationRed() {
     if ( i % RED_ANIMATION_SPACING == offkey_index ) {
       setPixelInStrip(i, Wheel((byte)pos_int), 1);
     } else {
-      setPixelInStrip(i, 0x000000, 1);
+      setPixelInStrip(i, color(0,0,0), 1);
     }
   }
   leds.show();
@@ -242,6 +412,12 @@ void lightAnimationRed() {
 #define MIN_TIME_BETWEEN_INPUT_CHANGES 100
 #define SHOW_LIGHT_MODE_DURATION_ON_BOOTUP 5000
 
+#define SWITCH_0_POWER_ON 0
+
+/**
+ * Switch 0 is the mode switch
+ * Switch 1 is TBD
+ */
 void loopLightMode() {
 
 #ifdef DISABLE_INPUT_SWITCHES
@@ -250,21 +426,67 @@ void loopLightMode() {
 
   unsigned long time_now = millis();
 
-  int currentSwitchState = digitalRead(switchInputPin);
+  int currentSwitch0State = digitalRead(switch0InputPin);
+  int currentSwitch1State = digitalRead(switch1InputPin);
+  bool state_changed = false;
 //  Serial.print("Digital Input: "); Serial.println(currentSwitchState);
 
-  if ( currentSwitchState != switch0State && time_now - last_light_mode_change > MIN_TIME_BETWEEN_INPUT_CHANGES ) {
-    switch0State = currentSwitchState;
-    Serial.print("Switch state changed. It is now ");   Serial.println(currentSwitchState  ? "HIGH" : "LOW");
-    lightMode = ((lightMode+1) % LIGHT_MODE_COUNT);
-    last_light_mode_change = time_now;
-    logLightMode(lightMode);
+  /*
+   * Update the state of switch 0
+   */
+  if ( currentSwitch0State != switch0State && time_now - last_light_mode_change > MIN_TIME_BETWEEN_INPUT_CHANGES ) {
+    switch0State = currentSwitch0State;
+    Serial.print("Switch 0 state changed. It is now ");   Serial.println(currentSwitch0State  ? "HIGH" : "LOW");
+
+    // only update light mode if the other switch is LOW (aka power is on)
+    if ( switch1State == SWITCH_0_POWER_ON ) {
+      lightMode = ((lightMode+1) % LIGHT_MODE_COUNT);
+      last_light_mode_change = time_now;
+      logLightMode(lightMode);
+      state_changed = true;
+    }
   }
 
-  if ( time_now < last_light_mode_change + LIGHT_MODE_BLINK_DURATION || time_now < SHOW_LIGHT_MODE_DURATION_ON_BOOTUP) {  
+
+  /*
+   * Update the state of switch 1
+   */
+  if ( currentSwitch1State != switch1State && time_now - last_switch_1_change > MIN_TIME_BETWEEN_INPUT_CHANGES ) {
+    switch1State = currentSwitch1State;
+    Serial.print("Switch 1 state changed. It is now ");   Serial.println(currentSwitch1State  ? "HIGH" : "LOW");
+    last_switch_1_change = time_now;
+
+    static int saved_mode = DEFAULT_LIGHT_MODE;
+    state_changed = true;
+
+    if ( switch1State != SWITCH_0_POWER_ON ) {   // if HIGH turn off the lights, else turn them on
+      // turn off
+      saved_mode = lightMode;
+      lightMode = LIGHT_MODE_OFF;
+      last_light_mode_change = time_now;
+      logLightMode(lightMode);
+
+    } else {
+      // turn lights on
+      lightMode = saved_mode % LIGHT_MODE_COUNT;  // do mod() to make sure we restore to a good value.
+      last_light_mode_change = time_now;
+      logLightMode(lightMode);
+    }
+  }
+
+  if ( state_changed ) {
+    Serial.println("Setting enclosure color again.");
+    setEnclosureColor(colorForLightMode(lightMode));
+  }  
+
+  /**
+   * Handle enclosure LED state
+   */
+  
+  if ( time_now < last_enclosure_led_change + LIGHT_MODE_BLINK_DURATION || time_now < SHOW_LIGHT_MODE_DURATION_ON_BOOTUP) {  
     
     // show mode for first SHOW_LIGHT_MODE_DURATION_ON_BOOTUP ms of boot-up or when the state changes
-    enclosure_pixels.setPixelColor(0, colorForLightMode(lightMode)); 
+    enclosure_pixels.setPixelColor(0, enclosureColor); 
        
   } else {
 
@@ -274,6 +496,11 @@ void loopLightMode() {
   }
   enclosure_pixels.show();
   
+}
+
+void setEnclosureColor(uint32_t c) {
+  enclosureColor = c;
+  last_enclosure_led_change = millis();
 }
 
 /**
@@ -289,9 +516,12 @@ uint32_t colorForLightMode(int mode) {
       break;
     case LIGHT_MODE_GREEN:
       return enclosure_pixels.Color(0,50,0);
-      break;   
+      break;
+    case LIGHT_MODE_OFF:
+      return enclosure_pixels.Color(0x11,0x11,0x11);
+      break;  
     default:
-      return enclosure_pixels.Color(0xFF,0xFA,0xCD);
+      return enclosure_pixels.Color(0x88,0x88,0x88);
   }
 }
 
