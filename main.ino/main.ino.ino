@@ -43,7 +43,7 @@ unsigned long last_switch_1_change = 0;  // initially high to prevent trigger on
  * NOTE: LIGHT_MODE_OFF is after the LIGHT_MODE_COUNT so it isn't cycled through.
  */
 typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
-#define DEFAULT_LIGHT_MODE LIGHT_MODE_ORANGE
+#define DEFAULT_LIGHT_MODE LIGHT_MODE_GREEN
 static int lightMode = DEFAULT_LIGHT_MODE;
 
 // Pin 13 blinking properties
@@ -328,19 +328,22 @@ int distanceCircular(int x, int y, int total) {
 /**
  * Measured current is 0.62 amps (Saturday @ 3:44pm)
  */
-#define GREEN_WIDTH 10
+#define GREEN_WIDTH 12
 void lightAnimationGreen() {
 
-  int target_pixel = (millis() / 40) % ledsPerStrip;
+  int target_pixel = (millis() / 40) % 47;
   uint32_t defaultcolor = color(0,0,10);
   
   for ( int i = 0; i < ledsPerStrip; i++ ) {
-    int distance_to_pixel = distanceCircular(i, target_pixel, ledsPerStrip);
+
+    int index_folded = i % 47;
+    
+    int distance_to_pixel = distanceCircular(index_folded, target_pixel, 47);
 
     if ( distance_to_pixel < GREEN_WIDTH ) {
 
       float percentage = (GREEN_WIDTH-distance_to_pixel)/((float) GREEN_WIDTH);
-      percentage = percentage * percentage;
+      percentage = percentage;
       
       byte r = (byte)(255.0f * percentage);
       byte g = (byte)(255.0f * percentage);
