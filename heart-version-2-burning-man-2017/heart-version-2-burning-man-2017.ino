@@ -22,8 +22,6 @@
  * declared here.
  */
 
-// input switch is 18 & 20
-// pot in is 17
 const int switch0InputPin = 18;
 const int switch1InputPin = 9;
 const int potentiometerPin = 16;
@@ -33,7 +31,15 @@ const int ledPin = 13;
 /**
  * Misc Variables
  */
- 
+
+// Number of LEDs and strip properties
+//#define LEDS_ON_RING 12
+#define LEDS_ON_ENCLOSURE_SINGLE_STRIP 141
+#define NUM_STRIPS 2
+const int ledsPerStrip = LEDS_ON_ENCLOSURE_SINGLE_STRIP;
+const int ledsTotal = ledsPerStrip * NUM_STRIPS;
+
+// Switches (input)
 static int switch0State, switch1State;
 unsigned long last_light_mode_change = 0;  // initially high to prevent trigger on 1st run
 unsigned long last_switch_1_change = 0;  // initially high to prevent trigger on 1st run
@@ -42,8 +48,8 @@ unsigned long last_switch_1_change = 0;  // initially high to prevent trigger on
  * Light modes as enum. 
  * NOTE: LIGHT_MODE_OFF is after the LIGHT_MODE_COUNT so it isn't cycled through.
  */
-typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
-#define DEFAULT_LIGHT_MODE LIGHT_MODE_GREEN
+typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_BLUE, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
+#define DEFAULT_LIGHT_MODE LIGHT_MODE_RED
 static int lightMode = DEFAULT_LIGHT_MODE;
 
 // Pin 13 blinking properties
@@ -53,7 +59,10 @@ static int lightMode = DEFAULT_LIGHT_MODE;
 #define BLINK_INTERVAL_DURING_SETUP 200   // interval in ms that blinks happen at, during setup
 
 #define SENSOR_BUFFER_LENGTH 4
-int sensor_readings[SENSOR_BUFFER_LENGTH];
+static int sensor_readings[SENSOR_BUFFER_LENGTH];
+
+// used in Sparkle animation
+static byte sparkleBuffer[ledsTotal];
 
 
 /**
@@ -70,12 +79,6 @@ uint32_t enclosureColor = 0;
  * Octo Library Setup
  */
 
-//#define LEDS_ON_RING 12
-#define LEDS_ON_ENCLOSURE_SINGLE_STRIP 141
-#define NUM_STRIPS 2
-
-const int ledsPerStrip = LEDS_ON_ENCLOSURE_SINGLE_STRIP;
-const int ledsTotal = ledsPerStrip * NUM_STRIPS;
 DMAMEM int displayMemory[ledsTotal*6];
 int drawingMemory[ledsTotal*6];
 const int config = WS2811_GRB | WS2811_800kHz;
@@ -115,6 +118,11 @@ void setup() {
   int sensor_initial_value = analogRead(potentiometerPin);
   for ( int i = 0; i < SENSOR_BUFFER_LENGTH; i++ ) {
     sensor_readings[i] = sensor_initial_value;
+  }
+
+  // clear sparkle buffer
+  for (int i = 0; i < ledsTotal; i++ ) {
+    sparkleBuffer[i] = 0;
   }
 
   delay(1000);
@@ -189,6 +197,10 @@ void loop()
       lightAnimationGreen();
       break;
 
+    case LIGHT_MODE_BLUE:
+      lightAnimationBlue();
+      break;
+
     case LIGHT_MODE_OFF:
       lightAnimationOff();
       break;
@@ -208,6 +220,83 @@ void loop()
  * Light Animations
  *
  ***************************************************************************************/
+
+uint32_t dimColor(uint32_t c, float bright) {
+  byte r,g,b;
+
+  r = (c >> 16) && 0xFF;
+  g = (c >> 8) && 0xFF;
+  b = (c >> 0) && 0xFF;
+
+  return color((byte)(r * bright), (byte)(g * bright), (byte)(b * bright));
+}
+
+/**
+ * Blue animation
+ */
+
+#define NUM_BLUE_ANIMATION_COLORS 7
+uint32_t blueAnimationColors[NUM_BLUE_ANIMATION_COLORS] = {0xFF0020, 0x8B20BB, 0xF0F100,0xFF7E02, 0xAEC8EF, 0xC0F4FF, 0x003399};
+
+void lightAnimationUnfinished() {
+  // 141 lights total
+  // 6 per pattern
+  int color_index = 0;
+
+  int t = millis() / 1000;
+  byte strip_on = (t%2);
+  
+  for ( byte j=0; j<2; j++ ) {
+    
+    color_index = 0;
+    
+    for ( int i = 0; i < ledsPerStrip; i+= 6 ) {
+   
+      uint32_t color = (j==strip_on) ? blueAnimationColors[color_index] : 0;    
+      setPixelInStrip(i  , 0, j);
+      setPixelInStrip(i+1, 0, j);
+      setPixelInStrip(i+2, dimColor(color, 30), j);
+      setPixelInStrip(i+3, color, j);
+      setPixelInStrip(i+4, color, j);
+      setPixelInStrip(i+5, dimColor(color, 30), j);
+    }
+    color_index = (color_index+1)%(byte)NUM_BLUE_ANIMATION_COLORS;
+  }
+  
+  leds.show();
+
+  
+}
+
+const static int SPARKLE_BUFFER_RANDOM_PROB = ledsTotal * 10;
+
+void lightAnimationBlue() {
+  return lightAnimationSparkle();
+}
+
+void lightAnimationSparkle() {
+
+  float wheel_percent = potentiometer_value / 1023.0f;  // between 0 and 1
+
+  int range = ledsTotal + (wheel_percent * ledsTotal * 10);
+
+  
+  int newPixel = random(range);
+  for ( int i = 0; i < ledsTotal; i++ ) {
+    if ( i == newPixel ) {
+      sparkleBuffer[i] = 255;
+    } else {
+      if ( sparkleBuffer[i] < 5 ) {
+        sparkleBuffer[i] = 0;
+      } else {
+        sparkleBuffer[i] = sparkleBuffer[i] - 4;
+      }
+    }
+    leds.setPixel(i, color(sparkleBuffer[i],sparkleBuffer[i],sparkleBuffer[i]));
+  }
+  leds.show();
+}
+
 
 /**
  * Animation that can be powered by USB from MacBook
@@ -520,6 +609,9 @@ uint32_t colorForLightMode(int mode) {
     case LIGHT_MODE_GREEN:
       return enclosure_pixels.Color(0,50,0);
       break;
+    case LIGHT_MODE_BLUE:
+      return enclosure_pixels.Color(0,0,5.0);
+      break;
     case LIGHT_MODE_OFF:
       return enclosure_pixels.Color(0x11,0x11,0x11);
       break;  
@@ -545,11 +637,8 @@ void logLightMode(int mode) {
 
 void setPixelInStrip(int pixel_id, uint32_t color, int strip_id) {
   if ( strip_id > 0 ) {
-    pixel_id += ledsPerStrip;
-  }
-//  if ( color ) {
-//    Serial.print("Strip "); Serial.print(strip_id); Serial.print("["); Serial.print(pixel_id); Serial.println("] has color");    
-//  }
+      pixel_id += ledsPerStrip; // assume 2 strips
+    }
   leds.setPixel(pixel_id, color);
 }
 
@@ -620,10 +709,6 @@ void bootUpLEDs() {
     
     enclosure_pixels.setPixelColor(0, color);
     enclosure_pixels.show();
-//    Serial.print("Boot up step "); 
-//    Serial.print(wheel_position);
-//    Serial.print(", ");
-//    Serial.println(pixel_on);    
 
     time_now = millis();
 
@@ -650,29 +735,4 @@ void blinkPin13LED(unsigned long duration, unsigned long blink_interval) {
     digitalWrite(ledPin, LOW);
   }
 }
-
-
-/**
- * //    float led_float_value = (float)i / (float)ledsPerStrip;
-//    float difference = (led_float_value > p) ? (led_float_value - p) : (p - led_float_value);
-//    if ( difference > 0.5 ) {
-//      difference = 1-difference;
-//    }
-//    if ( i == 2 ) {
-//      Serial.print(led_float_value);
-//      Serial.print(" / ");
-//      
-//      Serial.print(pos_int);
-//      Serial.print(" / ");
-//      
-//      Serial.print(p);
-//      Serial.print(" / ");
-//      Serial.println(difference);
-//    }
-
-//    if ( difference < 0.05f ) {
-//    if ( i < 5 || i > ledsPerStrip - 5 ) {
-//if ( 1 ) {
-
-*/
 
