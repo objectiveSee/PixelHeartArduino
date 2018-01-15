@@ -4,20 +4,11 @@
 #include <Hash.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-//#include "FastLED.h"
+#include <Adafruit_NeoPixel.h>
 
 #include "webpage.h"
+#include "animations.h"
 
-
-/**
- * Neopixel LED Definitions
- */
-//#define LEDS_ON_ENCLOSURE_SINGLE_STRIP 141
-//#define NUM_STRIPS 2
-#define LEDS_ON_ENCLOSURE_SINGLE_STRIP 12
-#define NUM_STRIPS 1
-const int ledsPerStrip = LEDS_ON_ENCLOSURE_SINGLE_STRIP;
-const int ledsTotal = ledsPerStrip * NUM_STRIPS;
 /** 
  * Light modes as enum. 
  * NOTE: LIGHT_MODE_OFF is after the LIGHT_MODE_COUNT so it isn't cycled through.
@@ -25,6 +16,10 @@ const int ledsTotal = ledsPerStrip * NUM_STRIPS;
 typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_BLUE, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
 #define DEFAULT_LIGHT_MODE LIGHT_MODE_RED
 static int lightMode = DEFAULT_LIGHT_MODE;
+
+#define NEOPIXEL_PIN 5
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(LEDS_PER_STRIP, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
 
 /**
  * On-board LED properties
@@ -37,10 +32,9 @@ bool LEDStatus;
 #define BLINK_INTERVAL_DURING_SETUP 200   // interval in ms that blinks happen at, during setup
 
 /**
- * Light Animations
+ * Parameters edited via Wireless API
  */
-// used in Sparkle animation
-static byte sparkleBuffer[ledsTotal];
+int potentiometer_value; // 0 to 123 inclusive
 
 /**
  * Wifi (ESP)
@@ -236,6 +230,11 @@ void setup() {
   Serial.setTimeout(500);
   Serial.begin(115200);
 
+  strip.setBrightness(30);  // TODO: Debugging only
+  strip.begin();
+  allColor(0);
+  strip.show();
+
   pinMode(ledPin, OUTPUT);
   writeLED(false);
 
@@ -247,9 +246,19 @@ void setup() {
   setupWifi();
 }
 
+
 void loopLightAnimations() {
 
-/*
+//  uint16_t i, j;
+//
+//  j = (millis() / 10) % 256;
+//
+//  for(i=0; i<strip.numPixels(); i++) {
+//    strip.setPixelColor(i, Wheel((i+j) & 255));
+//  }
+//  strip.show();
+//  return;
+
   switch (lightMode) {
   
     case LIGHT_MODE_RED:
@@ -277,8 +286,11 @@ void loopLightAnimations() {
       Serial.print("Unknown light mode "); Serial.println(lightMode);
       allColor(0x000000);
     break;
-  } 
-  */
+  }
+}
+
+void logLightMode(int mode) {
+  Serial.print("Light mode is "); Serial.println(mode);
 }
 
 void loop() {
@@ -286,6 +298,7 @@ void loop() {
   webSocket.loop();
   server.handleClient();
   loopLightAnimations();
+//  logLightMode(lightMode);
   delay(10);
 }
 
