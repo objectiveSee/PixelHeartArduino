@@ -69,6 +69,8 @@ void setupWifi() {
 // Commands sent through Web Socket
 const char LIGHTSON[] = "lightson";
 const char LIGHTSOFF[] = "lightsoff";
+const char ANIMATIONNEXT[] = "animationnext";
+const char ANIMATIONPREVIOUS[] = "animationprevious";
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
 {
@@ -102,6 +104,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       else if (strcmp(LIGHTSON, (const char *)payload) == 0) {
         lightMode = saved_mode;
         writeLED(true);
+      } else if (strcmp(ANIMATIONPREVIOUS, (const char *)payload) == 0) {                
+        lightMode = ((lightMode-1+LIGHT_MODE_COUNT) % LIGHT_MODE_COUNT);  // must add `LIGHT_MODE_COUNT` because % returns a negative otherwise
+        Serial.print("Light Mode Previous "); Serial.println(lightMode);
+      }
+      else if (strcmp(ANIMATIONNEXT, (const char *)payload) == 0) {
+        lightMode = ((lightMode+1) % LIGHT_MODE_COUNT);
+        Serial.print("Light Mode Next "); Serial.println(lightMode);
       } else {
         Serial.println("Unknown command");
       }
