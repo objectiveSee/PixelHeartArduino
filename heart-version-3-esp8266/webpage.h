@@ -2,6 +2,9 @@
 #define WEBPAGE_H
 
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
+
+
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -41,8 +44,14 @@ function buttonclick(e) {
 <div id="ledstatus"><b>LED</b></div>
 <button id="lightson"  type="button" onclick="buttonclick(this);">On</button> 
 <button id="lightsoff" type="button" onclick="buttonclick(this);">Off</button>
+
+<div id="animation"><b>Animation</b></div>
+<button id="animationprevious" type="button" onclick="buttonclick(this);">Previous</button>
+<button id="animationnext"  type="button" onclick="buttonclick(this);">Next</button> 
 </body>
 </html>
+
+
 )rawliteral";
 
 #endif
