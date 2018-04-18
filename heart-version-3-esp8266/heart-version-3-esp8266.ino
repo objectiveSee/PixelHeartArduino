@@ -6,20 +6,30 @@
 #include <ESP8266mDNS.h>
 #include <Adafruit_NeoPixel.h>
 
+#include "build.h" // should be first of user defined ones
 #include "webpage.h"
 #include "animations.h"
+
+/**
+ * Wifi
+ */
+MDNSResponder mdns;
+ESP8266WiFiMulti WiFiMulti;
+ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+const char* ssid     = "Stream";
+const char* password = "ChesapeakeBayFoundation";
 
 /** 
  * Light modes as enum. 
  * NOTE: LIGHT_MODE_OFF is after the LIGHT_MODE_COUNT so it isn't cycled through.
  */
-typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_BLUE, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
-#define DEFAULT_LIGHT_MODE LIGHT_MODE_RED
+typedef enum {LIGHT_MODE_RED = 0, LIGHT_MODE_ORANGE, LIGHT_MODE_GREEN, LIGHT_MODE_BLUE, LIGHT_MODE_RAINBOW, LIGHT_MODE_COUNT, LIGHT_MODE_OFF} LightMode;
+#define DEFAULT_LIGHT_MODE LIGHT_MODE_RAINBOW
 static int lightMode = DEFAULT_LIGHT_MODE;
 
-#define NEOPIXEL_PIN 5
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(LEDS_PER_STRIP, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
-
 
 /**
  * On-board LED properties
@@ -39,13 +49,6 @@ int potentiometer_value; // 0 to 123 inclusive
 /**
  * Wifi (ESP)
  */
-MDNSResponder mdns;
-ESP8266WiFiMulti WiFiMulti;
-ESP8266WebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
-
-const char* ssid     = "Stream";
-const char* password = "ChesapeakeBayFoundation";
 
 void setupWifi() {
   Serial.print("WIFI Connecting to ");
@@ -146,12 +149,22 @@ void handleNotFound()
 }
 
 void setupServers() {
+  unsigned long started = millis();
   Serial.println("Setting up servers");
   server.on("/", handleRoot);
+  Serial.println("[Setup Done] root");
   server.onNotFound(handleNotFound);
+  Serial.println("[Setup Done] not found");
   server.begin();
+  Serial.println("[Setup Done] Server Begin");
   webSocket.begin();
+  Serial.println("[Setup Done] Websocker Begin");
   webSocket.onEvent(webSocketEvent);
+  Serial.println("[Setup Done] Websocket Event");
+
+  Serial.print("[Setup Done] Entire setup took ");
+  unsigned long duration = millis() - started;
+  Serial.print(duration); Serial.println("ms");
 }
 
 void setupDNS () {
@@ -211,6 +224,7 @@ void loopWifi() {
 static void writeLED(bool LEDon)
 {
   LEDStatus = LEDon;
+#ifdef USE_ONBOARD_LED
   // Note inverted logic for Adafruit HUZZAH board
   if (LEDon) {
     digitalWrite(ledPin, 0);
@@ -218,6 +232,7 @@ static void writeLED(bool LEDon)
   else {
     digitalWrite(ledPin, 1);
   }
+#endif
 }
 
 
@@ -230,12 +245,14 @@ void setup() {
   Serial.setTimeout(500);
   Serial.begin(115200);
 
-  strip.setBrightness(30);  // TODO: Debugging only
+  strip.setBrightness(10);  // TODO: Debugging only
   strip.begin();
   allColor(0);
   strip.show();
 
+#ifdef USE_ONBOARD_LED
   pinMode(ledPin, OUTPUT);
+#endif
   writeLED(false);
 
   for(uint8_t t = 4; t > 0; t--) {
@@ -275,6 +292,10 @@ void loopLightAnimations() {
   
     case LIGHT_MODE_BLUE:
       lightAnimationBlue();
+      break;
+
+    case LIGHT_MODE_RAINBOW:
+      lightAnimationRainbow();
       break;
   
     case LIGHT_MODE_OFF:

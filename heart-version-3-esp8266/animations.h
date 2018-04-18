@@ -3,21 +3,6 @@
 
 #include <Adafruit_NeoPixel.h>
 
-/**
- * Neopixel LED Definitions
- */
-#define DR_USE_NEOPIXEL_RING
-
-#ifdef DR_USE_NEOPIXEL_RING
-#define NUM_STRIPS 1
-#define LEDS_TOTAL 12
-#define LEDS_PER_STRIP 12
-#else 
-#define NUM_STRIPS 2
-#define LEDS_TOTAL 282
-#define LEDS_PER_STRIP 141
-#endif
-
 
 void allColor(unsigned int c);
 uint32_t color(byte r, byte g, byte b);
@@ -28,7 +13,9 @@ void lightAnimationRed();
 void lightAnimationOrange();
 void lightAnimationGreen();
 void lightAnimationBlue();
+void lightAnimationRainbow();
 void lightAnimationOff();
+
 
 int distanceCircular(int x, int y, int total);
 
