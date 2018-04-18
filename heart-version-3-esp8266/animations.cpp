@@ -1,4 +1,5 @@
 #include "animations.h"
+#include "build.h"
 #include <Adafruit_NeoPixel.h>
 
 extern Adafruit_NeoPixel strip;
@@ -79,6 +80,36 @@ void lightAnimationOrange() {
       setPixelInStrip(i, 0, 0);
       setPixelInStrip(i, c, 1); 
     } 
+  }
+  strip.show();
+}
+
+const int DARK_SPOTS_IN_RAINBOW = 4;
+
+void lightAnimationRainbow() {
+  
+  
+  int wheel_offset = ((int)(millis()/30)%LEDS_PER_STRIP);
+
+  int darkness_offset =  DARK_SPOTS_IN_RAINBOW - ((int)(millis()/80)%DARK_SPOTS_IN_RAINBOW) - 1;
+
+//  Serial.print(darkness_offset); Serial.println(" - darkness");
+  
+  for ( int i = 0; i < LEDS_PER_STRIP; i++ ) {
+
+//    Serial.print(darkness_offset); Serial.print(", ");
+//    Serial.print(i); Serial.print(", ");
+//    Serial.print(i%DARK_SPOTS_IN_RAINBOW); Serial.println("");
+
+    if ( i % DARK_SPOTS_IN_RAINBOW == darkness_offset ) {
+      uint32_t darkColor = color( 0, 0, 0);
+      setPixelInStrip(i, darkColor, 0);
+    } else {
+      float wheelPosition = ((wheel_offset + i) % LEDS_PER_STRIP) / (float)LEDS_PER_STRIP * 255.0f;
+      uint32_t c = Wheel((int)wheelPosition);
+      setPixelInStrip(i, c, 0);
+    }
+
   }
   strip.show();
 }
